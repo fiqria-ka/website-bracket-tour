@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bracket Turnamen</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1b1f2a;--mut:#6b7280;--bd:#dfe3ec;--ac:#4f46e5;--win:#16a34a;--winbg:#dcfce7;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1220;--card:#1a1e30;--tx:#eef0f7;--mut:#9aa3b8;--bd:#2c3250;--ac:#818cf8;--win:#4ade80;--winbg:#14351f}}
+:root[data-theme="dark"]{--bg:#0f1220;--card:#1a1e30;--tx:#eef0f7;--mut:#9aa3b8;--bd:#2c3250;--ac:#818cf8;--win:#4ade80;--winbg:#14351f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+h1{margin:0 0 4px;font-size:1.5rem}
+.sub{color:var(--mut);margin:0 0 16px;font-size:.9rem}
+.panel{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px;display:grid;gap:12px;grid-template-columns:200px 1fr}
+@media(max-width:640px){.panel{grid-template-columns:1fr}}
+label{font-size:.8rem;color:var(--mut);display:block;margin-bottom:4px}
+input[type=number],input[type=text],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
+textarea{min-height:120px;resize:vertical}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+button{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:8px 14px;border-radius:8px;font:inherit;cursor:pointer}
+button.pri{background:var(--ac);color:#fff;border-color:var(--ac)}
+button:hover{filter:brightness(1.08)}
+.champ{text-align:center;font-size:1.2rem;font-weight:700;padding:12px;margin-bottom:16px;border-radius:12px;background:var(--winbg);color:var(--win);border:1px solid var(--win)}
+.wrap{overflow-x:auto;padding-bottom:12px}
+.bracket{display:flex;gap:28px;min-width:max-content}
+.round{display:flex;flex-direction:column;min-width:190px}
+.rt{text-align:center;font-weight:600;font-size:.85rem;color:var(--mut);margin-bottom:8px}
+.matches{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:10px}
+.m{background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.s{padding:8px 10px;font-size:.92rem;display:flex;justify-content:space-between;gap:8px;min-height:36px;border-bottom:1px solid var(--bd)}
+.s:last-child{border-bottom:0}
+.s.can{cursor:pointer}.s.can:hover{background:var(--bg)}
+.s.w{background:var(--winbg);color:var(--win);font-weight:700}
+.s.l{color:var(--mut);text-decoration:line-through}
+.s.e{color:var(--mut);font-style:italic}
+.hint{font-size:.8rem;color:var(--mut)}
+</style>
+</head>
+<body>
+<h1>🏆 Bracket Turnamen</h1>
+<p class="sub">Klik nama peserta untuk memilih pemenang. Pemenang otomatis maju ke babak berikutnya.</p>
+
+<div class="panel">
+  <div>
+    <label for="cnt">Jumlah peserta (2–64)</label>
+    <input id="cnt" type="number" min="2" max="64" value="8">
+    <div class="btns"><button id="apply">Terapkan</button></div>
+  </div>
+  <div>
+    <label for="names">Nama peserta (satu per baris)</label>
+    <textarea id="names"></textarea>
+    <div class="btns">
+      <button class="pri" id="build">Buat Bracket</button>
+      <button id="reroll">🎲 Reroll (Acak Ulang)</button>
+      <button id="reset">Reset Hasil</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="grid-template-columns:1fr 1fr">
+  <div><label for="tname">Nama turnamen</label><input id="tname" type="text" value="Turnamen Baru">
+    <div class="btns"><button id="new">+ Turnamen Baru</button><button id="del">🗑 Hapus</button></div></div>
+  <div><label for="list">Turnamen tersimpan (database lokal)</label><select id="list"></select>
+    <div class="hint" id="status" style="margin-top:8px"></div></div>
+</div>
+<div id="champ"></div>
+<div class="wrap"><div class="bracket" id="bracket"></div></div>
+<p class="hint">Jika jumlah peserta bukan 2, 4, 8, 16, dst., sebagian peserta mendapat BYE dan langsung lolos. Klik lagi pemenang untuk membatalkan pilihan.</p>
+
+<script>
+const $=id=>document.getElementById(id);
+let players=[], rounds=[];
+
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function seedOrder(n){let o=[1];while(o.length<n){const t=o.length*2+1;o=o.flatMap(x=>[x,t-x])}return o}
+function roundName(r,total){const left=total-r;return left===1?'Final':left===2?'Semifinal':left===3?'Perempat Final':'Babak '+(r+1)}
+
+function syncNames(){
+  const n=Math.max(2,Math.min(64,parseInt($('cnt').value)||2));
+  $('cnt').value=n;
+  let list=$('names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  list=list.slice(0,n);
+  for(let i=list.length;i<n;i++)list.push('Peserta '+(i+1));
+  $('names').value=list.join('\n');
+}
+
+function build(shuf){
+  let list=$('names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(list.length<2){syncNames();list=$('names').value.split('\n')}
+  $('cnt').value=list.length;
+  players=shuf?shuffle(list):list;
+  let size=2;while(size<players.length)size*=2;
+  const order=seedOrder(size).map(s=>s-1<players.length?s-1:-1);
+  rounds=[];
+  const r0=[];
+  for(let i=0;i<size;i+=2)r0.push({p:[order[i],order[i+1]],w:null});
+  rounds.push(r0);
+  let c=size/2;
+  while(c>1){c/=2;rounds.push(Array.from({length:c},()=>({p:[null,null],w:null})))}
+  if(shuf)$('names').value=players.join('\n');
+  render();
+}
+
+function propagate(){
+  rounds.forEach((rd,r)=>rd.forEach((m,i)=>{
+    if(r>0){m.p=[rounds[r-1][2*i].w,rounds[r-1][2*i+1].w]}
+    else{
+      if(m.p[0]===-1&&m.p[1]>=0)m.w=m.p[1];
+      else if(m.p[1]===-1&&m.p[0]>=0)m.w=m.p[0];
+    }
+    if(m.w!==null&&!m.p.includes(m.w))m.w=null;
+  }));
+}
+
+function pick(r,i,side){
+  const m=rounds[r][i],v=m.p[side];
+  if(v==null||v<0||m.p.some(x=>x==null||x<0))return;
+  m.w=(m.w===v)?null:v;
+  render();
+}
+
+function render(){
+  propagate();
+  const b=$('bracket');b.innerHTML='';
+  rounds.forEach((rd,r)=>{
+    const col=document.createElement('div');col.className='round';
+    col.innerHTML='<div class="rt">'+roundName(r,rounds.length)+'</div>';
+    const ms=document.createElement('div');ms.className='matches';
+    rd.forEach((m,i)=>{
+      const card=document.createElement('div');card.className='m';
+      const ready=m.p.every(x=>x!=null&&x>=0);
+      m.p.forEach((v,side)=>{
+        const s=document.createElement('div');s.className='s';
+        if(v===-1){s.textContent='BYE';s.classList.add('e')}
+        else if(v==null){s.textContent='Menunggu…';s.classList.add('e')}
+        else{
+          s.textContent=players[v];
+          if(m.w===v){s.classList.add('w');s.textContent='✓ '+players[v]}
+          else if(m.w!=null)s.classList.add('l');
+          if(ready){s.classList.add('can');s.onclick=()=>pick(r,i,side)}
+        }
+        card.appendChild(s);
+      });
+      ms.appendChild(card);
+    });
+    col.appendChild(ms);b.appendChild(col);
+  });
+  const f=rounds[rounds.length-1][0];
+  $('champ').innerHTML=f.w!=null?'<div class="champ">🏆 Juara: '+players[f.w].replace(/</g,'&lt;')+'</div>':'';
+}
+
+$('apply').onclick=()=>{syncNames();build(false)};
+$('build').onclick=()=>build(false);
+$('reroll').onclick=()=>build(true);
+$('reset').onclick=()=>{rounds.forEach(rd=>rd.forEach(m=>m.w=null));render()};
+$('cnt').addEventListener('keydown',e=>{if(e.key==='Enter')$('apply').click()});
+let curId=null,noSave=false,timer=null;
+const api=(u,o={})=>fetch('/api/tournaments'+u,{headers:{'Content-Type':'application/json'},...o}).then(r=>r.json());
+const st=t=>{$('status').textContent=t};
+function save(){clearTimeout(timer);timer=setTimeout(async()=>{
+  const body=JSON.stringify({name:$('tname').value.trim()||'Turnamen',players,rounds});
+  try{
+    if(curId)await api('/'+curId,{method:'PUT',body});
+    else curId=(await api('',{method:'POST',body})).id;
+    st('✓ Tersimpan otomatis');await loadList();
+  }catch(e){st('⚠ Gagal menyimpan (server mati?)')}
+},300)}
+async function loadList(){const l=await api('');
+  $('list').innerHTML=l.map(t=>'<option value="'+t.id+'">'+t.name.replace(/</g,'&lt;')+'</option>').join('');
+  if(curId)$('list').value=curId}
+async function openT(id){const t=await api('/'+id);curId=t.id;$('tname').value=t.name;
+  players=t.players;rounds=t.rounds;$('cnt').value=players.length;$('names').value=players.join('\n');
+  noSave=true;render();noSave=false;await loadList();st('')}
+const _r=render;render=function(){_r();if(!noSave)save()};
+$('list').onchange=e=>openT(e.target.value);
+$('tname').oninput=save;
+$('new').onclick=()=>{curId=null;$('tname').value='Turnamen Baru';$('cnt').value=8;$('names').value='';syncNames();build(false)};
+$('del').onclick=async()=>{if(!curId||!confirm('Hapus turnamen ini?'))return;
+  await api('/'+curId,{method:'DELETE'});curId=null;const l=await api('');
+  if(l.length)openT(l[0].id);else $('new').click()};
+(async()=>{try{const l=await api('');if(l.length)await openT(l[0].id);else{syncNames();build(false)}}
+  catch(e){st('⚠ Server tidak aktif, jalankan: npm start');syncNames();build(false)}})();
+</script>
+</body>
+</html>
